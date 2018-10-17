@@ -1,110 +1,129 @@
 #!/bin/bash
+#
+# run_me.sh
+#
+# Environment Variables to use in your script:
+#
+# Directories in the test asset:
+# - MEDIA_DIRECTORY: Path to the media directory in the test asset
+# - SCRIPTS_DIRECTORY: Path to the scripts directory in the test asset
+#
+# To generate test results:
+# - REPORT_DIRECTORY: Path to the report directory, contents will be downloadable as test results
+# - LOG_DIRECTORY: Path to REPORT_DIRECTORY\log
+#
+# Deployment properties
+# - DEPLOYMENT_PROPERTIES_FILE: Path to the deployment-properties.ps1 file.  Use this to read IP
+# address information or custom properties for your test.
+#
 
-# Set log commands
-logTag="sample-test-asset"
-logInfo="logger -i -s -p local3.info -t ${logTag} [INFO] "
-logWarn="logger -i -s -p local3.warning -t ${logTag} [WARNING] "
-logErr="logger -i -s -p local3.err -t ${logTag} [ERROR] "
+# Source the environment
+if [ -f /etc/bashrc ] ; then
+    . /etc/bashrc
+fi
+if [ -f /etc/profile ] ; then
+    . /etc/profile
+fi
 
-# Get the current timestamp and append to logfile name
-TIMESTAMP=$(date "+%Y-%m-%d-%H%M")
-LOGFILE="/tmp/cons3rt-test-script-${logTag}-${TIMESTAMP}.log"
+######################### GLOBAL VARIABLES #########################
 
-function test() {
+# Establish a log file and log tag
+logTag="test-script"
+logFile="${LOG_DIRECTORY}/${logTag}-$(date "+%Y%m%d-%H%M%S").log"
 
-	if [ -z ${TMA_HOME} ]
-	then
-		${logWarn} "TMA_HOME not set"
-	else
-		${logInfo} "TMA_HOME: ${TMA_HOME}"
-	fi
+# Default test end state
+testEndStateValue="pass"
 
-	if [ -z ${ASSET_DIR} ]
-	then
-		${logWarn} "ASSET_DIR not set"
-	else
-		${logInfo} "ASSET_DIR: ${ASSET_DIR}"
-	fi
+######################## UTILITY FUNCTIONS #########################
 
-	if [ -z ${DEPLOYMENT_HOME} ]
-	then
-		${logWarn} "DEPLOYMENT_HOME not set.  Attempting to set DEPLOYMENT_HOME ..."
-	else
-		locatedPropFiles=`find / -name deployment.properties`
-		${logInfo} "Found deployment.properties files here: ${locatedPropFiles}"
-		DEPLOYMENT_DIR=`ls /opt/testmanageragent/run | grep Deployment`
-		DEPLOYMENT_HOME=/opt/testmanageragent/run/${DEPLOYMENT_DIR}
-		${logInfo} "Trying DEPLOYMENT_HOME: ${DEPLOYMENT_HOME}"
-	fi
+# Logging functions
+function timestamp() { date "+%F %T"; }
+function logInfo() { echo -e "$(timestamp) ${logTag} [INFO]: ${1}" >> ${logFile}; }
+function logWarn() { echo -e "$(timestamp) ${logTag} [WARN]: ${1}" >> ${logFile}; }
+function logErr() { echo -e "$(timestamp) ${logTag} [ERROR]: ${1}" >> ${logFile}; }
 
-	if [ ! -d ${DEPLOYMENT_HOME} ]
-	then
-		${logErr} "DEPLOYMENT_HOME is set to - ${DEPLOYMENT_HOME} - and is not a valid directory.  Exiting with code 3 ..."
-		exit 3
-	else
-		${logInfo} "DEPLOYMENT_HOME is a valid directory"
-	fi
+function get_test_end_state() {
+    logInfo "Determining the test end state from deployment properties..."
 
-	propFile="${DEPLOYMENT_HOME}/deployment.properties"
+    # Ensure the deployment properties file environment variable exists
+    if [ -z "${DEPLOYMENT_PROPERTIES_FILE}" ]; then
+        logErr "Environment variable not found: DEPLOYMENT_PROPERTIES_FILE"
+        return 1
+    fi
 
-	if [ ! -f ${propFile} ]
-	then
-		${logErr} "The properties file ${propFile} is not a valid file.  Exiting with code 4 ..."
-		exit 4
-	else
-		${logInfo} "propFile: ${propFile}"
-	fi
+    # Ensure the deployment properties file exists
+    if [ -z "${DEPLOYMENT_PROPERTIES_FILE}" ]; then
+        logErr "Deployment properties file not found: ${DEPLOYMENT_PROPERTIES_FILE}"
+        return 2
+    fi
 
-	${logInfo} "Grabbing values from ${propFile} ..."
-	RUNID=`grep cons3rt.deploymentRun.id= ${propFile} | awk -F = '{ print $2 }'`
-	TESTBUNDLEID=`grep cons3rt.deployment.testbundle.1.id ${propFile} | awk -F = '{ print $2 }'`
-	TESTASSETID=`grep cons3rt.deployment.testbundle.1.testAsset.id ${propFile} | awk -F = '{ print $2 }'`
+    # Attempt to find the testEndState prop
+    testEndState=$(cat ${DEPLOYMENT_PROPERTIES_FILE} | grep "testEndState" | awk -F = '{print $2}')
 
-	${logInfo} "RUNID: ${RUNID}"
-	${logInfo} "TESTBUNDLEID: ${TESTBUNDLEID}"
-	${logInfo} "TESTASSETID: ${TESTASSETID}"
+    # Use the default if the custom prop is not found
+    if [ -z "${testEndState}" ]; then
+        logInfo "testEndState custom property not found, using default: ${testEndStateValue}"
+        return 0
+    fi
 
-	# set up output files
-
-	BASEDIR="/opt/testmanageragent/run/Deployment${DEPLOYID}/run/${RUNID}/"
-	${logInfo} "BASEDIR: ${BASEDIR}"
-
-	${logInfo} "Printing various ENV variables ..."
-	${logInfo} "PATH: ${PATH}"
-	${logInfo} "PWD: ${PWD}"
-	${logInfo} "HOME: ${HOME}"
-
-	${logInfo} "Printing /root/.bashrc ..."
-	cat /root/.bashrc
-
-	CURRENT_DIR=`pwd`
-	${logInfo} "Current Directory is ${CURRENT_DIR}"
-
-
-	testEndState=`grep testEndState= ${propFile} | awk -F = '{ print $2 }'`
-
-	if [ -z "${testEndState}" ]
-	then
-		${logErr} "Deployment property not set - testEndState - this needs to be set to pass for successful test execution. Exiting with code 1 ..."
-		exit 2
-	else
-		echo "Found Deployment property: testEndState = ${testEndState}"
-	fi
-
-	if [ "${testEndState}" == "pass" ]
-	then
-		${logInfo} "Expected end State was expected to pass. Exiting with code 0 ..."
-		exit 0
-	else
-		${logInfo} "Expected end State was expected to fail: ${testEndState}. Exiting with code 2 ..."
-		exit 1
-	fi
-	exit
-
+    # Use the custom property value
+    testEndStateValue="${testEndState}"
+    logInfo "Found custom property for testEndState: ${testEndStateValue}"
+    return 0
 }
 
-test 2>&1 | tee ${LOGFILE}
+function main() {
+    logInfo "Beginning ${logTag} script..."
+    get_test_end_state
+    if [ $? -ne 0 ]; then logErr "There was a problem determining testEndState"; return 1; fi
 
-chmod 644 ${LOGFILE}
+    logInfo "Using testEndState = ${testEndStateValue}"
 
-exit 0
+    # Print test warning and a test error
+    logWarn "This is a test warning"
+    logErr "This is a test error"
+
+    # Print the media and scripts directories
+    logInfo "Test asset media directory: ${MEDIA_DIRECTORY}"
+    logInfo "Test asset scripts directory: ${SCRIPTS_DIRECTORY}"
+
+    # Print locations of the report directoiries
+    logInfo "Attempting to print desired Environment vars..."
+    logInfo "Results Dir: ${REPORT_DIRECTORY}"
+    logInfo "Log Dir: ${LOG_DIRECTORY}"
+
+    # Add some test results
+    logInfo "Adding file to results dir..."
+    echo "HELLO WORLD TEST RESULTS!!" > ${REPORT_DIRECTORY}/testresults.txt
+
+    # Add a test log file
+    logInfo "Adding file to log dir..."
+    echo "HELLO WORLD TEST LOG!!" > ${LOG_DIRECTORY}/testlog.log
+
+    # Add enviroinment variables to the test results
+    logInfo "Adding an environment.log file to the test results..."
+    env > ${LOG_DIRECTORY}/environment.log
+
+    logInfo "Note, this log file should be located in the lgo directory"
+
+    # Exiting based on the desired test end state
+    if [[ ${testEndStateValue} == "fail" ]]; then
+        logErr "The tester requested a test error! So, here you go!"
+        return 2
+    fi
+    logInfo "The tester requested a test pass!  Yay!  We passed!"
+    return 0
+}
+
+##################### MAIN SCRIPT EXECUTION ########################
+
+# Set up the log file
+touch ${logFile}
+chmod 644 ${logFile}
+
+main
+result=$?
+cat ${logFile}
+
+logInfo "Exiting with code ${result} ..."
+exit ${result}
