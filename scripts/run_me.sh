@@ -52,7 +52,7 @@ function get_test_end_state() {
     fi
 
     # Ensure the deployment properties file exists
-    if [ -z "${DEPLOYMENT_PROPERTIES_FILE}" ]; then
+    if [ ! -f ${DEPLOYMENT_PROPERTIES_FILE} ]; then
         logErr "Deployment properties file not found: ${DEPLOYMENT_PROPERTIES_FILE}"
         return 2
     fi
